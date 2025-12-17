@@ -6,7 +6,7 @@ import argparse
 import subprocess
 import signal
 import time
-from multiprocessing import Event
+from multiprocessing import Process, Event
 import threading
 
 
@@ -14,21 +14,25 @@ def parse_cmdline_args():
     parser = argparse.ArgumentParser(
         description="启动并监控 npm 进程，退出时自动重启"
     )
-    parser.add_argument("script", type=str, default="start", help="要运行的 npm 脚本名称，默认为 'start'")
-    parser.add_argument("--restart", action="store_true", help="是否自动重启")
-    parser.add_argument("--cwd", type=str, default=".", help="npm 项目目录，默认为当前目录")
-    parser.add_argument("--max-restarts", type=int, default=-1, help="最大重启次数，-1 表示无限重启")
+    parser.add_argument("--restart", action="store_true", help="自动重启")
+    parser.add_argument("--npm-script", type=str, default="start", 
+                       help="要运行的 npm 脚本名称，默认为 'start'")
+    parser.add_argument("--cwd", type=str, default=".", 
+                       help="npm 项目目录，默认为当前目录")
+    parser.add_argument("--max-restarts", type=int, default=-1,
+                       help="最大重启次数，-1 表示无限重启")
+    
     args = parser.parse_args()
     return args
 
 
-def run_npm_process(script, cwd, shutdown_event, restart_count):
+def run_npm_process(npm_script, cwd, shutdown_event, restart_count):
     """
     运行 npm 进程
     """
     try:
         # 构建 npm 命令
-        cmd = ["npm", "run", script]
+        cmd = ["npm", "run", npm_script]
         
         print(f"[INFO] 启动 npm: {' '.join(cmd)} (工作目录: {os.path.abspath(cwd)})")
         print(f"[INFO] 重启次数: {restart_count.value if hasattr(restart_count, 'value') else restart_count}")
@@ -39,9 +43,11 @@ def run_npm_process(script, cwd, shutdown_event, restart_count):
             cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            shell=True,
             text=True,
             bufsize=1,
-            universal_newlines=True
+            universal_newlines=True,
+            encoding="utf-8"
         )
         
         # 创建线程来读取输出
@@ -78,7 +84,7 @@ def run_npm_process(script, cwd, shutdown_event, restart_count):
         return -1
 
 
-def monitor_process(script, cwd, restart_enabled, max_restarts):
+def monitor_process(npm_script, cwd, restart_enabled, max_restarts):
     """
     监控并管理 npm 进程
     """
@@ -94,7 +100,7 @@ def monitor_process(script, cwd, restart_enabled, max_restarts):
     
     restart_count = 0
     last_restart_time = 0
-    min_restart_interval = 3  # 最小重启间隔（秒）
+    min_restart_interval = 1  # 最小重启间隔（秒）
     
     try:
         while not shutdown_event.is_set():
@@ -115,7 +121,7 @@ def monitor_process(script, cwd, restart_enabled, max_restarts):
             last_restart_time = time.time()
             
             # 运行 npm 进程
-            return_code = run_npm_process(script, cwd, shutdown_event, restart_count)
+            return_code = run_npm_process(npm_script, cwd, shutdown_event, restart_count)
             
             # 如果不启用重启，直接退出
             if not restart_enabled or shutdown_event.is_set():
@@ -156,7 +162,7 @@ def main():
         print(f"[INFO] 单次运行模式")
         args.max_restarts = 0
     
-    print(f"[INFO] npm 脚本: {args.script}")
+    print(f"[INFO] npm 脚本: {args.npm_script}")
     print(f"[INFO] 工作目录: {os.path.abspath(args.cwd)}")
     print("-" * 60)
     
@@ -172,7 +178,7 @@ def main():
     
     # 启动监控进程
     monitor_process(
-        script=args.script,
+        npm_script=args.npm_script,
         cwd=args.cwd,
         restart_enabled=args.restart,
         max_restarts=args.max_restarts
